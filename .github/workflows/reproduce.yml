@@ -24,13 +24,16 @@ jobs:
       - name: Install R and analysis dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends r-base r-cran-glmnet r-cran-rmarkdown pandoc
+          sudo apt-get install -y --no-install-recommends r-base r-cran-glmnet r-cran-ggplot2 r-cran-svglite r-cran-rmarkdown pandoc
       - name: Run and validate regression analysis
         run: |
           Rscript scripts/run_analysis.R
           test -s results/model_metrics.csv
           test -s results/figures/test_roc_curves.png
           test -s results/figures/lasso_cv.png
+          test -s results/figures/lasso_cv.svg
+          test -s results/figures/test_probability_distribution.png
+          test -s results/lasso_cv_curve.csv
           test -s results/RESULTS.md
       - name: Render self-contained HTML report
         run: |

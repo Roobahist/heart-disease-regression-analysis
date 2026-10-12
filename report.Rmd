@@ -67,6 +67,14 @@ knitr::include_graphics('results/figures/test_roc_curves.png')
 knitr::include_graphics('results/figures/model_comparison.png')
 ```
 
+## Understanding the individual predictions
+
+The following plot shows the actual probabilities output by the **full logistic model** on the held-out observations. Every point is a test record and the dashed line marks the stated classification threshold.
+
+```{r probabilities, echo=FALSE, out.width='95%'}
+knitr::include_graphics('results/figures/test_probability_distribution.png')
+```
+
 ## LASSO diagnostics and retained features
 
 ```{r cv, echo=FALSE, out.width='95%'}

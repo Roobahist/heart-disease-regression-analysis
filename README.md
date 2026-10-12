@@ -11,9 +11,11 @@ stepwise logistic regression, LASSO feature selection, and held-out model compar
 [**Results and statistics**](results/RESULTS.md) ·
 [**Reproduction workflow**](.github/workflows/reproduce.yml)
 
-![Held-out ROC curves](results/figures/test_roc_curves.png)
+### Model performance at a glance
 
-![LASSO CV plot](results/figures/lasso_cv.png)
+[![Held-out model comparison](results/figures/model_comparison.png)](results/figures/model_comparison.svg)
+
+[![Held-out ROC curves](results/figures/test_roc_curves.png)](results/figures/test_roc_curves.svg)
 
 ## Reproduced results
 
@@ -34,7 +36,23 @@ See [the full metric table](results/model_metrics.csv),
 [data audit](results/data_audit.csv), and
 [analysis report](results/report.html).
 
-![Comparison of holdout model performance](results/figures/model_comparison.png)
+## Visual analysis
+
+All figures are computed from the **actual dataset, held-out predictions,
+trained coefficients and cross-validation results**, with a consistent
+visual language. PNG previews link to downloadable vector SVG files.
+
+| Observed age distribution | LASSO coefficient estimates |
+|:---:|:---:|
+| [![Age by outcome](results/figures/age_distribution.png)](results/figures/age_distribution.svg) | [![LASSO coefficients](results/figures/lasso_coefficients.png)](results/figures/lasso_coefficients.svg) |
+
+| Regularization / cross-validation | Individual holdout predictions |
+|:---:|:---:|
+| [![LASSO CV](results/figures/lasso_cv.png)](results/figures/lasso_cv.svg) | [![Predicted probabilities](results/figures/test_probability_distribution.png)](results/figures/test_probability_distribution.svg) |
+
+| Outcome distribution | Correlation of numerical features |
+|:---:|:---:|
+| [![Outcome classes](results/figures/outcome_balance.png)](results/figures/outcome_balance.svg) | [![Feature correlations](results/figures/numeric_correlations.png)](results/figures/numeric_correlations.svg) |
 
 ## Key methodological improvement: avoid duplicate leakage
 
@@ -53,7 +71,8 @@ represents prospective patients.
 
 | Location | Description |
 | --- | --- |
-| [scripts/run_analysis.R](scripts/run_analysis.R) | Full executable R analysis and figure generation |
+| [scripts/run_analysis.R](scripts/run_analysis.R) | Reproducible statistical fitting and metrics |
+| [scripts/plot_results.R](scripts/plot_results.R) | Consistent data-backed ggplot2 visualizations and PNG/SVG exports |
 | [report.Rmd](report.Rmd) | Reproducible analytical report |
 | [results/](results/) | Generated metrics, model coefficients, predictions, PNG plots, HTML report |
 | [data/heart.csv](data/heart.csv) | Original 1,025-row source dataset |
@@ -62,11 +81,13 @@ represents prospective patients.
 
 ## Reproduce
 
-Requires **R**, the **glmnet** package, and optionally **rmarkdown** for HTML.
+Requires **R** with **glmnet**, **ggplot2**, and **svglite**; use **rmarkdown** for HTML.
 
 ```bash
-Rscript -e 'install.packages(c("glmnet", "rmarkdown"), repos="https://cloud.r-project.org")'
+Rscript -e 'install.packages(c("glmnet", "ggplot2", "svglite", "rmarkdown"), repos="https://cloud.r-project.org")'
 Rscript scripts/run_analysis.R
+# For plot-only regeneration after editing a chart:
+Rscript scripts/plot_results.R
 Rscript -e "rmarkdown::render('report.Rmd', output_file='report.html', output_dir='results')"
 ```
 

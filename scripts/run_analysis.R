@@ -126,69 +126,19 @@ write.csv(data.frame(
   predicted_probability = unlist(probabilities, use.names = FALSE)
 ), file.path(root, "results", "test_predictions.csv"), row.names = FALSE)
 
-fig_dir <- file.path(root, "results", "figures")
-save_png <- function(name, draw) {
-  png(file.path(fig_dir, name), width = 1200, height = 780, res = 130)
-  tryCatch(draw(), finally = dev.off())
-}
-save_png("outcome_balance.png", function() {
-  counts <- table(factor(data$target, levels = c(0, 1),
-                         labels = c("No disease", "Disease")))
-  par(mar = c(5, 5, 4, 2))
-  bars <- barplot(counts, col = c("#657b92", "#c77c64"), ylim = c(0, max(counts) * 1.2),
-                  ylab = "Distinct records", main = "Target distribution after deduplication")
-  text(bars, as.numeric(counts) + 5, labels = as.integer(counts), cex = 1.2)
-})
-save_png("age_distribution.png", function() {
-  par(mar = c(5, 5, 4, 2))
-  boxplot(age ~ factor(target, labels = c("No disease", "Disease")), data = data,
-          col = c("#d7e1ea", "#f1d1bd"), ylab = "Age (years)",
-          xlab = "Dataset outcome", main = "Age and heart disease label")
-  stripchart(age ~ factor(target, labels = c("No disease", "Disease")),
-             data = data, add = TRUE, method = "jitter", jitter = 0.13,
-             pch = 16, cex = 0.35, col = rgb(0.1, 0.2, 0.3, alpha = 0.24))
-})
-save_png("numeric_correlations.png", function() {
-  numeric_fields <- c("age", "trestbps", "chol", "thalach", "oldpeak")
-  mat <- cor(data[, numeric_fields])
-  par(mar = c(9, 9, 4, 4))
-  image(seq_along(numeric_fields), seq_along(numeric_fields), mat,
-        xlab = "", ylab = "", axes = FALSE, col = colorRampPalette(
-          c("#355c7d", "#f7f7f7", "#ce6a58"))(100), zlim = c(-1, 1),
-        main = "Pearson correlations (continuous attributes)")
-  axis(1, at = seq_along(numeric_fields), labels = numeric_fields, las = 2)
-  axis(2, at = seq_along(numeric_fields), labels = numeric_fields, las = 2)
-  for (i in seq_along(numeric_fields)) {
-    for (j in seq_along(numeric_fields)) {
-      text(i, j, sprintf("%.2f", mat[i, j]), cex = 0.75)
-    }
-  }
-})
-roc_points <- function(y, p) {
-  ord <- order(p, decreasing = TRUE)
-  p <- p[ord]
-  y <- y[ord]
-  cbind(fpr = c(0, cumsum(y == 0) / sum(y == 0)),
-        tpr = c(0, cumsum(y == 1) / sum(y == 1)))
-}
-save_png("test_roc_curves.png", function() {
-  par(mar = c(5, 5, 4, 2))
-  plot(c(0, 1), c(0, 1), type = "n", xlab = "False positive rate",
-       ylab = "True positive rate", main = "ROC curves on untouched holdout test set",
-       xaxs = "i", yaxs = "i")
-  abline(0, 1, lty = 3, col = "gray60")
-  palette <- c("#416e90", "#bb704b", "#4c997d")
-  for (i in seq_along(probabilities)) {
-    roc <- roc_points(y_test, probabilities[[i]])
-    lines(roc[, "fpr"], roc[, "tpr"], col = palette[i], lwd = 3)
-  }
-  legend("bottomright", legend = sprintf("%s (AUC %.3f)", names(probabilities), metrics$auc),
-         col = palette, lwd = 3, cex = 0.8, bg = "white")
-})
-save_png("lasso_cv.png", function() {
-  par(mar = c(5, 5, 4, 2))
-  plot(cv_lasso, main = "LASSO: five-fold CV on training set only")
-})
+# The reporting layer consumes only computed metrics and fitted model outputs.
+# Preserve the full five-fold CV curve for transparent visualization.
+cv_curve <- data.frame(
+  lambda = cv_lasso$lambda,
+  cvm = cv_lasso$cvm,
+  cvsd = cv_lasso$cvsd,
+  nonzero = cv_lasso$nzero,
+  lambda_min = rep(cv_lasso$lambda.min, length(cv_lasso$lambda)),
+  lambda_1se = rep(cv_lasso$lambda.1se, length(cv_lasso$lambda))
+)
+write.csv(cv_curve, file.path(root, "results", "lasso_cv_curve.csv"),
+          row.names = FALSE)
+
 coefs <- as.matrix(coef(cv_lasso, s = "lambda.1se"))
 coefs <- coefs[rownames(coefs) != "(Intercept)", , drop = FALSE]
 coefs <- coefs[abs(coefs[, 1]) > 1e-8, , drop = FALSE]
@@ -196,31 +146,10 @@ coefficients <- data.frame(feature = rownames(coefs), coefficient = coefs[, 1],
                            row.names = NULL)
 write.csv(coefficients, file.path(root, "results", "lasso_coefficients.csv"),
           row.names = FALSE)
-save_png("lasso_coefficients.png", function() {
-  par(mar = c(5, 13, 4, 2))
-  if (!nrow(coefficients)) {
-    plot.new()
-    title(main = "No retained LASSO coefficients at lambda.1se")
-  } else {
-    order_idx <- order(coefficients$coefficient)
-    vals <- coefficients$coefficient[order_idx]
-    labs <- coefficients$feature[order_idx]
-    barplot(vals, horiz = TRUE, names.arg = labs, las = 1, cex.names = 0.8,
-            col = ifelse(vals >= 0, "#4c997d", "#bb704b"),
-            main = "LASSO log-odds coefficients (lambda.1se)",
-            xlab = "Coefficient on model-matrix scale")
-    abline(v = 0, col = "gray30")
-  }
-})
-save_png("model_comparison.png", function() {
-  par(mar = c(8, 5, 4, 2))
-  barplot(rbind(metrics$auc, metrics$accuracy), beside = TRUE,
-          names.arg = c("Full logistic", "Stepwise logistic", "LASSO logistic"),
-          las = 2, col = c("#416e90", "#c77c64"), ylim = c(0, 1),
-          ylab = "Holdout score", main = "Held-out predictive performance")
-  legend("topright", legend = c("ROC AUC", "Accuracy"),
-         fill = c("#416e90", "#c77c64"), cex = 0.85)
-})
+
+source(file.path(root, "scripts", "plot_results.R"))
+render_figures(root)
+
 fmt <- function(x) sprintf("%.3f", x)
 lines <- c(
   "# Reproduced results",
@@ -262,7 +191,8 @@ lines <- c(lines,
   "![LASSO coefficients](figures/lasso_coefficients.png)",
   "![Age distribution](figures/age_distribution.png)",
   "![Outcome balance](figures/outcome_balance.png)",
-  "![Numeric correlations](figures/numeric_correlations.png)"
+  "![Numeric correlations](figures/numeric_correlations.png)",
+  "![Holdout probability distribution](figures/test_probability_distribution.png)"
 )
 writeLines(lines, file.path(root, "results", "RESULTS.md"))
 cat("Analysis complete: ", n_original, " original; ", n_unique,
