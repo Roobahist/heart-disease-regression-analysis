@@ -15,14 +15,35 @@ stepwise logistic regression, LASSO feature selection, and held-out model compar
 
 ![LASSO CV plot](results/figures/lasso_cv.png)
 
+## Reproduced results
+
+**1,025** source rows · **302** unique records · **723** exact duplicate rows removed ·
+**241** training observations · **61** held-out test observations.
+
+| Model | Holdout ROC AUC | Accuracy | F1 |
+| --- | ---: | ---: | ---: |
+| Full logistic GLM | **0.936** | **85.2%** | **0.870** |
+| Stepwise logistic GLM | 0.922 | 82.0% | 0.836 |
+| LASSO logistic GLM | 0.930 | 83.6% | 0.861 |
+
+These are **reproduced measurements**, using a single, stratified 80/20 split
+(random seed 2026) after removing exact duplicates. They are **not**
+independent external validation or estimates of clinical performance.
+
+See [the full metric table](results/model_metrics.csv),
+[data audit](results/data_audit.csv), and
+[analysis report](results/report.html).
+
+![Comparison of holdout model performance](results/figures/model_comparison.png)
+
 ## Key methodological improvement: avoid duplicate leakage
 
 The source file contains **1,025 rows but numerous identical records**.
 The original team notebooks combine extensive exploratory modelling with
 cross-validation on a prepared dataset; their original data dependencies include
-\`heart.xlsx\` and \`heart_processed.csv\`, which were not in the source repository.
+`heart.xlsx` and `heart_processed.csv`, which were not in the source repository.
 
-This reanalysis reads the included \`data/heart.csv\` directly, drops exact
+This reanalysis reads the included `data/heart.csv` directly, drops exact
 duplicates *before* an 80/20 class-stratified split, uses five-fold
 cross-validation on training data only for LASSO, and reports performance on
 the untouched holdout. It makes no promise that a small historical dataset
@@ -43,13 +64,13 @@ represents prospective patients.
 
 Requires **R**, the **glmnet** package, and optionally **rmarkdown** for HTML.
 
-\`\`\`bash
+```bash
 Rscript -e 'install.packages(c("glmnet", "rmarkdown"), repos="https://cloud.r-project.org")'
 Rscript scripts/run_analysis.R
 Rscript -e "rmarkdown::render('report.Rmd', output_file='report.html', output_dir='results')"
-\`\`\`
+```
 
-Open \`results/report.html\` locally for the compiled analysis. GitHub Actions
+Open `results/report.html` locally for the compiled analysis. GitHub Actions
 runs the same code on each relevant update and commits the generated results.
 A fixed seed (2026) makes the single held-out split reproducible.
 

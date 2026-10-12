@@ -22,7 +22,9 @@ This report uses a cleaned, self-contained analysis pipeline.
 
 ## Data quality and evaluation design
 
-`r knitr::kable(read.csv('results/data_audit.csv'), digits = 3)`
+```{r audit-table, echo=FALSE, results='asis'}
+knitr::kable(read.csv('results/data_audit.csv'), digits = 3)
+```
 
 The raw heart dataset contains many exact duplicate rows. We removed
 duplicates *before* stratified training/testing division and selected model
