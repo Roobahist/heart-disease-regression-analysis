@@ -1,0 +1,706 @@
+---
+title: "Logistic regression of clinical data for predictive modelling of Heart disease"
+author: "David Yang, Arman Jahangiri, Mojtaba Kanani Sarcheshmeh"
+date: "2023-11-30"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Statistical analysis part
+
+
+The heart disease prediction dataset from kaggle was used in our project. This dataset contains a "target" variable which describes the onset of heart disease and 13 predictors including both categorical and continuous variables. The dataset contains a total of 1025 observations.
+
+```{r}
+
+data <- read.csv("heart.csv")
+
+summary(data)
+```
+# Data processing
+The heart prediction data was processed and cleaned through the following means:
+
+a) Categorical variables that were number encoded were renamed with their corresponding descriptive strings so that model coefficients were informative and easily interpretable 
+b) The NAs and missing values were checked for in the data. In our case, the heart disease prediction dataset contained no NAs or missing values.
+c) Duplicate entries in our dataset were checked for and removed. We defined duplicates as rows that contained the same exact value for all 14 columns in our dataset as we deemed this to be highly unlikely considering the continuous nature and range of several variables. (should we talk about how the probability of getting any one value for a continous random variable has a probability of zero, therefore it is extremely unlikely for this to occur). In total, our dataset contained 723 duplicate rows.
+d) Rows containing wrongly entered entries were removed from our dataset. For example, this included values for categorical variables that fell outside of the grouping for the variable. In total there was 25 wrongly entered values.
+
+After performing data processing and cleaning, our dataset contained 295 observations. 
+
+```{r echo = TRUE}
+# Renaming categorical variables in our dataset to be more informative
+
+# sex
+data$sex[data$sex == 0] = "female"
+data$sex[data$sex == 1] = "male"
+
+# chest pain
+data$cp[data$cp == 3] = "typical angina"
+data$cp[data$cp == 2] = "atypical angina"
+data$cp[data$cp == 1] = "non-anginal pain"
+data$cp[data$cp == 0] = "asymptomatic"
+
+# fasting blood sugar
+data$fbs[data$fbs == 0] = "<120mg/dl"
+data$fbs[data$fbs == 1] = ">120mg/dl"
+
+# resting electrocardiographic results
+data$restecg[data$restecg == 0] = "normal"
+data$restecg[data$restecg == 1] = "abnormality"
+data$restecg[data$restecg == 2] = "hypertrophy"
+
+# exercise induced angina
+data$exang[data$exang == 0] = "No"
+data$exang[data$exang == 1] = "Yes"
+
+# the slope of the peak exercise ST segment
+data$slope[data$slope == 0] = "upsloping"
+data$slope[data$slope == 1] = "flat"
+data$slope[data$slope == 2] = "downsloping"
+
+# thal
+data$thal[data$thal == 1] = "normal"
+data$thal[data$thal == 2] = "fixed defect"
+data$thal[data$thal == 3] = "reversable defect"
+
+# target 
+data$target[data$target == 0] = "No disease"
+data$target[data$target == 1] = "Disease"
+```
+
+Next we will remove the outlier for cholesterol data:
+``` {r }
+data = data[!data$chol == 564,]
+```
+
+``` {r, echo = TRUE}
+# Check for NA or missing values
+sum(is.na(data)) > 0
+
+# Check for duplicates
+dup_idx <- duplicated(data)
+dup_rows <- data[dup_idx, ]
+data = unique(data)
+
+# Drop rows in data where "thal == 0" and "cp == 4"
+data <- data[!data$thal == 0, ]
+data <- data[!data$ca == 4, ]
+
+write.csv(data, "heart_processed.csv")
+```
+
+
+Z-Score Normalization is preferred over MinMax Normalization as 
+
+1. it is robust against outliers
+2. the interpretability of coefficients is crucial in our analysis; the coefficients represent the change in the response variable in terms of standard deviations
+
+
+
+\textbf{Note} ) Standardization (Z-score normalization) is generally not applied to categorical variables, especially binary (dummy) variables. Here's why:
+
+\begin{itemize}
+\item \textbf{Interpretability}: Categorical variables, especially binary ones (0 or 1), have a clear interpretation. Standardizing them would change the interpretation, making it less intuitive.
+
+\item \textbf{Scale Differences}: Categorical variables are already on a common scale (0 or 1 for binary variables), so the issues related to different scales that standardization aims to address are less relevant for these variables.
+
+\item \textbf{Impact on Models}: Standardizing binary variables won't impact logistic regression models in the same way it might affect algorithms sensitive to variable scales. Logistic regression coefficients for binary variables are interpreted as log-odds ratios, and standardization won't change this interpretation.
+
+\end{itemize}
+
+
+```{r}
+# Preprocessing
+
+library(caret)
+
+# New data with only the continuous variables scaled via z-scoring technique
+
+continuous_columns <- c("age", "trestbps", "chol", "thalach", "oldpeak", "ca")
+data_copy = data
+
+data_copy[continuous_columns] <- scale(data[continuous_columns])
+
+data_scaled_continuous = data_copy
+summary(data_scaled_continuous)
+```
+Below we build up a full model containing all 13 predictor variables with the response being the "target" variable. This full model is used for reference for model comparisons and model selection. 
+
+In order to verify that the coefficients are correct, we first perform an overall significance test of our model to affirm that all regressors do not equal to zero. This is done by comparing our full model to the minimal model in a likelihood ratio test with $\alpha=0.05$ and where the null hypothesis is $\beta_j=0$ for $j = 1, ..., 13$. The test statistic is defined as follows:
+$$
+C = 2\left[l(\beta) - l(\beta_{min})\right] = Null dev. - Residual dev.
+$$
+$C \sim \chi^2_{18}$ as the degrees of freedom is equal to the difference in the number of parameters. 
+``` {r echo = TRUE}
+C = 408.40-187.16
+pval = pchisq(C, 18, lower.tail = FALSE)
+```
+In our test, the p-value that we get is `r pval`. Since this is less than $\alpha=0.05$, we can reject the null hypothesis and conclude that all our coefficients are not equal to zero.
+
+# Starting from the full model
+First fit the full model with 13 variables. 
+
+```{r}
+
+# Formula
+formula <- factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal)
+
+# Fiting the logistic regression model
+full_model <- glm(formula, data = data_scaled_continuous, family = "binomial")
+
+# Display summary of the model
+summary(full_model)
+
+# non-significant coefficients: age, chol, fbs, restecg, thalach, exang, oldpeak
+```
+We will first begin and see if the probit or the logit link function is a better fit for our data. From the fitted probit model, we found that it performs negligibly worse than the logit model in terms of AIC and residual deviance. Hence, because of the simplicity and ease of interpretation in the logit model and slightly better performance for our data, we decided to use only the logit link function.
+
+```{r}
+# Formula
+formula <- factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal)
+
+# Fiting the logistic regression model
+full_model_probit <- glm(formula, data = data_scaled_continuous, family = binomial(link = "probit"))
+
+# Display summary of the model
+summary(full_model_probit)
+
+# non-significant coefficients: age, chol, fbs, restecg, thalach, exang, oldpeak
+```
+
+Next we will look for any possible exponential relationship in the continuous variables in the full model:
+```{r echo = TRUE}
+# age (NS)
+full_model_age_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(age^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_age_2)
+
+# trestbps (NS)
+full_model_trestbps_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(trestbps^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_trestbps_2)
+
+# chol (NS)
+full_model_chol_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(chol^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_chol_2)
+
+# thalach (NS)
+full_model_thalach_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(thalach^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_thalach_2)
+
+# oldpeak (NS)
+full_model_oldpeak_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(oldpeak^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_oldpeak_2)
+
+# ca (only squared term is significant)
+full_model_ca_2 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_ca_2)
+
+full_model_ca_3 <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2) + I(ca^3), 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_ca_3)
+
+full_model_2 = full_model_ca_2
+```
+
+Next we will fit a full model with the quadratic ca term and all possible two-way interaction terms
+``` {r echo = TRUE}
+full_model_with_interactions <- glm(factor(target) ~ (age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2))^2, 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_with_interactions)
+```
+
+Next use the backwards algorithm to select which interaction terms and variables to keep.
+``` {r echo = TRUE, warning = FALSE}
+backward_full <-step(full_model_with_interactions,direction="backward",trace=0)
+summary(backward_full)
+```
+
+Next we will use the forward step algorithm to find the best model. The maximum scope we specify is the full model with $ca^2$ plus all two-way interaction terms. In this part of the study, we have two starting points for the forward step algorithm:
+
+1. Full model with $ca^2$
+2. Intercept model
+
+``` {r echo = TRUE, warning = FALSE}
+forward_full<-step(full_model_2,direction="forward",trace=0, scope = (factor(target) ~ (age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2))^2))
+summary(forward_full)
+```
+``` {r echo = TRUE, warning = FALSE}
+intercept.model = glm(formula=factor(target) ~ 1, family = "binomial", data = data_scaled_continuous)
+forward_full_intercept <-step(intercept.model,direction="forward",trace=0, scope = (factor(target) ~ (age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2))^2))
+summary(forward_full_intercept)
+```
+
+Next we will add interaction terms that aligns with current scientific literature.
+``` {r echo = TRUE}
+full_model_science <- glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal) + I(ca^2) + factor(sex):trestbps + factor(sex):chol + factor(sex):factor(fbs) + trestbps:factor(fbs) + trestbps:chol, 
+                  data = data_scaled_continuous, family = "binomial")
+summary(full_model_science)
+```
+
+# Starting from the Reduced model 
+From the Wald test in the full model, several coefficients were shown to be insignficant $(\alpha = 0.05)$ in the presence of other variables. This includes the coefficients for age, chol, fbs, restecg, thalach, exang, and oldpeak. Hence we built models with each of the variables removed and a model with all the variables removed. The deviance for each of the model was derived and compared. Ultimately, after removal of non-significant coefficients, our reduced model contained 6 predictors (4 categorical variables & 2 continuous variables).
+
+```{r echo = TRUE}
+# non-significant coefficients: age, chol, fbs, restecg, thalach, exang, oldpeak
+model_age_removed = glm(factor(target) ~ factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_chol_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_fbs_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_restecg_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + thalach + factor(exang) + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_thalach_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + factor(exang) + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_exang_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + oldpeak + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_oldpeak_removed = glm(factor(target) ~ age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+model_all_removed = glm(factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal),
+                        data = data_scaled_continuous, family = "binomial")
+
+summary(model_age_removed)$deviance
+summary(model_chol_removed)$deviance
+summary(model_fbs_removed)$deviance
+summary(model_restecg_removed)$deviance
+summary(model_thalach_removed)$deviance
+summary(model_exang_removed)$deviance
+summary(model_oldpeak_removed)$deviance
+summary(model_all_removed)$deviance
+```
+
+Next, we checked whether any of the continuous variables in our model without non-significant coefficients contained any non-linear relationships with our response variable using the Wald test. We found that there was no exponential relationship between *trestbps* and *target* but there was quadratic relationship between *ca* and *target*. Hence we included the quadratic term for *ca* in our reduced model.
+```{r echo = TRUE}
+# Check for exponential relationships
+# trestbps (non-significant)
+model_trestbps_2 = glm(factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(trestbps^2),
+                        data = data_scaled_continuous, family = "binomial")
+summary(model_trestbps_2)
+# ca (only power of 2 significant)
+model_ca_2 = glm(factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2),
+                        data = data_scaled_continuous, family = "binomial")
+summary(model_ca_2)
+
+model_ca_3 = glm(factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2) + I(ca^3),
+                        data = data_scaled_continuous, family = "binomial")
+summary(model_ca_3)
+```
+
+In order to explore the effect of the intercept on our logistic regression model, we compared our reduced model containing the significant coefficients and the quadratic term, with a reduced model containing the same exact same predictors but without an intercept term. 
+``` {r }
+reduced_model_noninteraction <- factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2)
+reduced_noninteraction.model <- glm(reduced_model_noninteraction, data = data_scaled_continuous, family = "binomial")
+summary(reduced_noninteraction.model)
+
+# Remove intercept 
+reduced_model_noninteraction_no_intercept <- factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2) +0
+reduced_noninteraction_no_intercept.model <- glm(reduced_model_noninteraction_no_intercept, data = data_scaled_continuous, family = "binomial")
+summary(reduced_noninteraction_no_intercept.model)
+
+summary(reduced_noninteraction.model)$deviance
+summary(reduced_noninteraction_no_intercept.model)$deviance
+```
+
+In our to investigate the presence of any interaction terms in our dataset, we fitted our reduced model with all possible two-way interactions, and our reduced model without an intercept with all possible two-way interactions. 
+```{r echo = TRUE, warning=FALSE}
+# add interactions for the reduced model
+reduced_model_with_interactions <- factor(target) ~ (factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2))^2
+reduced_with_interactions.model <- glm(reduced_model_with_interactions, data = data_scaled_continuous, family = "binomial")
+summary(reduced_with_interactions.model)
+
+# add interactions for the reduced model without an intercept
+reduced_model_no_intercept_with_interactions <- factor(target) ~ (factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2) +0)^2
+reduced_no_intercept_with_interactions.model <- glm(reduced_model_no_intercept_with_interactions, data = data_scaled_continuous, family = "binomial")
+summary(reduced_no_intercept_with_interactions.model)
+```
+
+We performed backwards step selection on our reduced model with all possible two-way interactions with the intention of selecting the best glm model containing two-way interactions. The function that we used, step(), performed drop1() repetitively until the AIC of the next model is greater than the AIC of the previous model and then stops. 
+``` {r results='hide',fig.keep='all', warning=FALSE, error=FALSE, message=FALSE, suppress=TRUE}
+#library(olsrr)
+#backmodel_twoway = ols_step_backward_p(reduced_noninteraction_with_interactions.model, prem=0.3, details=TRUE, progress=TRUE)
+
+backward<-step(reduced_with_interactions.model,direction="backward",trace=0)
+summary(backward)
+```
+
+In order to select the best interaction terms for our dataset, we performed forward step variable selection on our reduced model with the quadratic term. We defined our maximum model for the algorithm to step towards as the model containing all two-way interaction terms. The step() function performs add1() repetitively until the AIC of the next model is greater than the AIC of the previous and then stops. 
+``` {r , results='hide',fig.keep='all', warning=FALSE}
+forward<-step(reduced_noninteraction.model,direction="forward",trace=0, scope = (factor(target) ~ (factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2))^2))
+summary(forward)
+```
+
+In order to test the reliability of the model obtained from the previous forward step variable selection, we performed forward step variable selection on the intercept model with the same defined maximum model for the algorithm to step towards.
+``` {r echo = TRUE, warning= FALSE}
+intercept.model = glm(formula=factor(target) ~ 1, family = "binomial", data = data_scaled_continuous)
+forward_intercept <-step(intercept.model ,direction="forward",trace=0, scope =(factor(target) ~ (factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2))^2))
+summary(forward_intercept)
+```
+We may look out in the previous available research and domain knowledge to see if having an interaction between ca and thal makes any sense.
+
+Now, we try to build new models with adding only the interactions we have some evidence of relation (based on domain knowledge and previous research experience). This included adding the interaction term for *sex* and *trestbps* since current literature suggests that on average, males have greater resting blood pressure than females.
+
+```{r}
+
+# Specifying the covariates and different interactions to be included
+
+# No chol anymore, only sex blood pressure now
+
+# Model 1) sex:trestbps
+reduced_int1_perdictors <- factor(target) ~ factor(sex) + factor(cp) + trestbps + factor(slope) + ca + factor(thal) + I(ca^2) + factor(sex):trestbps
+
+# Building the models using the above specified interactions
+
+reduced_int1_model <- glm(reduced_int1_perdictors, data = data_scaled_continuous, family = "binomial")
+
+summary(reduced_int1_model)
+```
+
+# Using Lasso regression for variable selection
+``` {r, echo = TRUE, warning=FALSE}
+# Use glmnet to obtain glm via penalized regularization for coefficients
+
+library(glmnet)
+
+# Response variable
+y <- data_scaled_continuous$target
+
+
+# First, using all the predictors (including ca^2) excluding the interaction terms
+predictors = subset(data_scaled_continuous, select=-c(target))
+
+# predictors_ca2 = cbind(predictors, data_scaled_continuous$ca^2)
+predictors$ca2 = predictors$ca * predictors$ca
+
+# Choose appropriate values for alpha and lambda based on your needs
+alpha_lasso <- 1  # 1 for lasso, 0 for ridge
+alpha_ridge <- 0  # 1 for lasso, 0 for ridge
+alpha_elastic <- 0.5  # 1 for lasso, 0 for ridge
+
+glmnet.model1.lasso = glmnet(y, x=predictors,alpha=alpha_lasso,nlambda=100, family="binomial")
+
+cvfit.glmnet.model1.lasso = cv.glmnet(y, x=as.matrix(predictors),alpha=alpha_lasso,nlambda=100, family="binomial")
+
+plot(cvfit.glmnet.model1.lasso)
+cvfit.glmnet.model1.lasso
+
+```
+
+
+```{r  ,warning=FALSE}
+# Second, using all the predictors including the 2-way interaction terms and ca^2
+
+# Response variable
+y <- data_scaled_continuous$target
+
+# Interaction terms for all 2-way interactions
+interaction_terms <- as.data.frame(model.matrix(~(age + factor(sex) + factor(cp) + trestbps + chol + factor(fbs) + factor(restecg) + thalach + factor(exang) + oldpeak + factor(slope) + ca + I(ca^2) + factor(thal))^2, data=data_scaled_continuous))
+
+# Combine the interaction terms with the original predictors
+predictors.int <- cbind(data_scaled_continuous[, c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal")], interaction_terms, data_scaled_continuous$ca^2)
+
+# Choose appropriate values for alpha and lambda based on your needs
+alpha_lasso <- 1  # 1 for lasso, 0 for ridge
+alpha_ridge <- 0  # 1 for lasso, 0 for ridge
+alpha_elastic <- 0.5  # 1 for lasso, 0 for ridge
+
+cvfit.glmnet.model2.lasso = cv.glmnet(y, x = as.matrix(predictors.int), alpha = alpha_lasso, nlambda=100, family = "binomial")
+
+
+#Using the cvfit, we find out that the optimal lambda for 1se is 0.06611, so we use it
+
+# Fit glmnet model
+glmnet.model2.lasso <- glmnet(y, x = as.matrix(predictors.int), alpha = alpha_lasso, lambda=0.06611, family = "binomial")
+
+ glmnet.model2.lasso$nulldev
+ 
+ glmnet.model2.lasso$dev.ratio 
+ 
+  glmnet.model2.lasso$df
+deviance = 407.1618 * 0.4169409
+
+plot(cvfit.glmnet.model2.lasso)
+cvfit.glmnet.model2.lasso
+
+
+coef = coef(glmnet.model2.lasso)
+
+nonzero_elements <- coef[coef != 0]
+
+# Create a new matrix with only nonzero elements
+
+lasso.coef = coef(glmnet.model2.lasso)
+names = c("intercept" , colnames(predictors.int))
+
+names.nonzero = names[which(lasso.coef!= 0)]
+
+names.nonzero = matrix(names.nonzero, 41,1)
+coef.nonzero = matrix(lasso.coef[lasso.coef!=0] , 41,1)
+
+
+lasso.coefs.matrix = matrix(c(names.nonzero,coef.nonzero) , 41,2)
+lasso.coefs.dataframe = as.data.frame(matrix(c(names.nonzero,coef.nonzero) , 41,2))
+
+
+deviance.glmnet.model2.lasso = glmnet.model2.lasso$dev.ratio*glmnet.model2.lasso$nulldev
+
+McFadden_R2 = 1 - glmnet.model2.lasso$dev.ratio
+
+df_glmnet = 295 - length(coef.nonzero)
+```
+```{r echo =TRUE}
+glmnet.AIC = deviance.glmnet.model2.lasso + (2*41)
+```
+```{r echo = TRUE}
+# Predict on the training data
+y_pred_prob <- predict(glmnet.model2.lasso, newx = as.matrix(predictors.int), s = "lambda.min", type = "response")
+
+# Calculate Mean Squared Error (MSE)
+y[y=="Disease"] = 1
+y[y=="No disease"] = 0
+lasso_mse <- mean((as.numeric(y) - y_pred_prob)^2)
+
+```
+
+Note) 
+The ridge penalty shrinks the coefficients of correlated
+predictors towards each other while the lasso tends to pick one
+of them and discard the others. The elastic net penalty mixes
+these two: if predictors are correlated in groups, an α = 0.5
+tends to either select or leave out the entire group of features. 
+
+# Model comparison
+Next we perform cross-validation with 10 folds to test the accuracy of each of our models. The average prediction error for each model was compared.
+
+```{r echo = TRUE, warning=FALSE}
+# Prediction errors in the different glm models when using cross-validation to split the data into k=5 folds
+library(boot)
+  
+  
+# Create list containing all the MSE
+MSE = list(
+  full_model_2.delta = list(),
+  full_model_science.delta = list(),
+  backward_full.delta = list(),
+  forward_full.delta = list(),
+  forward_full_intercept.delta = list(),
+  reduced_noninteraction.model.delta = list(),
+  reduced_with_interactions.model.delta = list(),
+  reduced_no_intercept_with_interactions.model.delta = list(),
+  backward.delta = list(),
+  forward.delta = list(),
+  reduced_int1_model.delta = list()
+)
+
+for (i in 1:10){
+   MSE[["reduced_noninteraction.model.delta"]] = c(MSE[["reduced_noninteraction.model.delta"]],cv.glm(data=data_scaled_continuous, glmfit = reduced_noninteraction.model, K=10)$delta[1])
+   
+  MSE[["reduced_int1_model.delta"]] = c(MSE[["reduced_int1_model.delta"]],cv.glm(data=data_scaled_continuous, glmfit = reduced_int1_model, K=10)$delta[1])
+  
+  MSE[["forward.delta"]] = c(MSE[["forward.delta"]],cv.glm(data=data_scaled_continuous, glmfit = forward, K=10)$delta[1])
+  
+  MSE[["backward.delta"]] = c(MSE[["backward.delta"]],cv.glm(data=data_scaled_continuous, glmfit = backward, K=10)$delta[1])
+  
+    MSE[["reduced_with_interactions.model.delta"]] = c(MSE[["reduced_with_interactions.model.delta"]],cv.glm(data=data_scaled_continuous, glmfit = reduced_with_interactions.model, K=10)$delta[1])
+    
+  MSE[["reduced_no_intercept_with_interactions.model.delta"]] = c(MSE[["reduced_no_intercept_with_interactions.model.delta"]],cv.glm(data=data_scaled_continuous, glmfit = reduced_no_intercept_with_interactions.model, K=10)$delta[1])
+  
+  MSE[["full_model_2.delta"]] = c(MSE[["full_model_2.delta"]],cv.glm(data=data_scaled_continuous, glmfit = full_model_2, K=10)$delta[1])
+  
+  MSE[["full_model_science.delta"]] = c(MSE[["full_model_science.delta"]],cv.glm(data=data_scaled_continuous, glmfit = full_model_science, K=10)$delta[1])
+  
+  MSE[["backward_full.delta"]] = c(MSE[["backward_full.delta"]],cv.glm(data=data_scaled_continuous, glmfit = backward_full, K=10)$delta[1])
+  
+  MSE[["forward_full.delta"]] = c(MSE[["forward_full.delta"]],cv.glm(data=data_scaled_continuous, glmfit = forward_full, K=10)$delta[1])
+  
+  MSE[["forward_full_intercept.delta"]] = c(MSE[["forward_full_intercept.delta"]],cv.glm(data=data_scaled_continuous, glmfit = forward_full_intercept, K=10)$delta[1])
+}
+
+for (i in seq_along(MSE)){
+  MSE[[i]] = mean(unlist(MSE[[i]]))
+}
+```
+
+
+``` {r echo = TRUE}
+# Use glmnet to obtain glm via penalized maximum likelihood via lasso regression
+library(glmnet)
+predictors = subset(data_scaled_continuous, select=-c(target))
+glmnet.model = glmnet(y=data_scaled_continuous$target, x=predictors, family="binomial")
+```
+
+Whne we check for the overdispersion parameter by dividing deviance/(n-q) we get 0.6776. model is not suspect to overdispersion therefore we don't need to do quasi-binomial model.
+
+Create table for all descriptors:
+```{r echo = FALSE}
+# Function to summarize deviance and AIC for multiple fitted regression models
+summarize_fitted_models <- function(...) {
+  # Capture the list of fitted models
+  model_list <- list(...)
+  print(model_list)
+
+  # Create an empty data frame to store results
+  result_df <- data.frame(Model = character(), Deviance = numeric(), AIC = numeric(), NullDeviance = numeric(), df = numeric())
+
+  # Iterate through the models and summarize
+  for (i in seq_along(model_list)) {
+    fit <- model_list[[i]]
+
+    # Check if the model is of class 'glm'
+    if (!inherits(fit, "glm")) {
+      warning(paste("Model", i, "is not of class 'glm'. Skipping."))
+      next
+    }
+
+    # Extract deviance and AIC
+    deviance <- deviance(fit)
+    aic <- AIC(fit)
+    dof <- fit$df.residual
+    null = fit$null.deviance
+
+    # Add results to the data frame
+    result_df <- rbind(result_df, data.frame(Model = paste("Model", i), Deviance = deviance, AIC = aic, NullDeviance = null, df = dof))
+    #result_df <- rbind(result_df, data.frame(Model = deparse(substitute(fit)), Deviance = deviance, AIC = aic, NullDeviance = null, df = dof))
+  }
+
+  return(result_df)
+}
+
+# Example usage
+# Assume you have two fitted models: fit1 and fit2
+# fit1 <- glm(y ~ x1 + x2, family = "binomial", data = example_data)
+# fit2 <- glm(y ~ x1 + x3, family = "binomial", data = example_data)
+
+# model 1: full_model_2
+# model 2: full_model_science
+# model 3: backward_full
+# model 4: forward_full
+# model 5: forward_full_intercept
+# model 6: reduced_noninteraction.model
+# model 7: reduced_with_interactions.model
+# model 8: reduced_no_intercept_with_interactions.model
+# model 9: backward
+# model 10: forward
+# model 11: reduced_int1_model
+# model 12: Lasso model
+
+# models = list(full_model_2, full_model_science, backward_full, forward_full, forward_full_intercept, reduced_with_interactions.model, reduced_no_intercept_with_interactions.model, backward, forward, reduced_int1_model)
+# Call the function to summarize fitted models
+summary_result <- summarize_fitted_models(full_model_2, full_model_science, backward_full, forward_full, forward_full_intercept, reduced_noninteraction.model, reduced_with_interactions.model, reduced_no_intercept_with_interactions.model, backward, forward, reduced_int1_model)
+
+# Print the summary
+print(summary_result)
+
+```
+``` {r echo = TRUE}
+summary_result = rbind(summary_result, data.frame(Model = "Model 12", Deviance = deviance.glmnet.model2.lasso, AIC = glmnet.AIC, NullDeviance = 408.3950, df= 295-41))
+```
+
+Add McFadden's Pseudo $R^2$
+``` {R echo = TRUE}
+# model 1: full_model_2
+# model 2: full_model_science
+# model 3: backward_full
+# model 4: forward_full
+# model 5: forward_full_intercept
+# model 6: reduced_noninteraction.model
+# model 7: reduced_with_interactions.model
+# model 8: reduced_no_intercept_with_interactions.model
+# model 9: backward
+# model 10: forward
+# model 11: reduced_int1_model
+# model 12: lasso
+
+summary_result$q = 295 - summary_result$df
+summary_result$R2 = 1- (summary_result$Deviance/summary_result$NullDeviance)
+summary_result$lrt = (summary_result$NullDeviance - summary_result$Deviance)
+summary_result$lrt_pval = pchisq(summary_result$lrt, 295-summary_result$df, lower.tail = FALSE)
+summary_result[summary_result$Model == "Model 7", "lrt_pval"] = pchisq(summary_result$lrt[summary_result$Model=="Model 7"], 296-summary_result$df[summary_result$Model=="Model 7"], lower.tail = FALSE)
+summary_result[summary_result$Model == "Model 7", "q"] = 296 - summary_result$df[summary_result$Model == "Model 7"]
+
+# Add prediction error
+summary_result[summary_result$Model == "Model 1", "MSE"] = MSE[["full_model_2.delta"]]
+summary_result[summary_result$Model == "Model 2", "MSE"] = MSE[["full_model_science.delta"]]
+summary_result[summary_result$Model == "Model 3", "MSE"] = MSE[["backward_full.delta"]]
+summary_result[summary_result$Model == "Model 4", "MSE"] = MSE[["forward_full.delta"]]
+summary_result[summary_result$Model == "Model 5", "MSE"] = MSE[["forward_full_intercept.delta"]]
+summary_result[summary_result$Model == "Model 6", "MSE"] = MSE[["reduced_noninteraction.model.delta"]]
+summary_result[summary_result$Model == "Model 7", "MSE"] = MSE[["reduced_with_interactions.model.delta"]]
+summary_result[summary_result$Model == "Model 8", "MSE"] = MSE[["reduced_no_intercept_with_interactions.model.delta"]]
+summary_result[summary_result$Model == "Model 9", "MSE"] = MSE[["backward.delta"]]
+summary_result[summary_result$Model == "Model 10", "MSE"] = MSE[["forward.delta"]]
+summary_result[summary_result$Model == "Model 11", "MSE"] = MSE[["reduced_int1_model.delta"]]
+summary_result[summary_result$Model == "Model 12", "MSE"] = lasso_mse
+```
+```{r echo = TRUE}
+write.csv(summary_result, "model_summary.csv")
+```
+
+Eliminate models 3 and 4 because of residual deviance, eliminate models 7,8,12 because of AIC. In the end perform comparisons for the models 1, 2, 5, 6, 9, 10, and 11.
+
+# Model description
+Check that model assumptions hold
+```{r}
+pdf("forward_full_intercept.png")
+par(mfrow=c(2,2))
+plot(forward_full_intercept)
+dev.off()
+
+```
+
+Prediction: Confidence interval with the model
+``` {r echo = TRUE}
+conf_int = confint(forward_full_intercept)
+write.csv(conf_int, "conf_int.csv")
+```
+```{r }
+summary_model <- summary(forward_full_intercept)
+
+# Extract coefficients and their standard errors
+coefficients <- coef(summary_model)
+standard_errors <- coef(summary_model)[, "Std. Error"]
+
+# Combine coefficients and standard errors into a data frame
+coefficients_df <- data.frame(
+  Coefficient = rownames(coefficients),
+  Estimate = coefficients[, "Estimate"],
+  Std_Error = standard_errors
+)
+```
+```{r }
+write.csv(coefficients_df, "coefficients_df.csv")
+```
+
+Interpretation: Interpret the p-values/coefficients (variance of coefficients) and the confidence intervals based on the context of the data. Log-odds ratio, Log-odds ratio 
+``` {r echo = TRUE}
+#var_cov_matrix = vcov(forward_full_intercept)
+#var_coef = diag(var_cov_matrix)
+#coefficients = coef(forward_full_intercept)
+
+
+# Calculate dispersion parameter to make sure still no overdispersion
+
+# Estimate the variance of the error term in the GLM: look at the different types of residuals.
+resid(forward_full_intercept, "pearson")
+resid(forward_full_intercept, "deviance")
+resid(forward_full_intercept, "working")
+resid(forward_full_intercept, "response")
+
+glm.diag(forward_full_intercept)
+```

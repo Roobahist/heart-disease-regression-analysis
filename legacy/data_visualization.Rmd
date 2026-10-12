@@ -1,0 +1,252 @@
+---
+title: "Data visualization"
+date: "2023-11-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Data visualization part
+```{r}
+library(dplyr)
+library(skimr)
+library(readxl)
+library(ggplot2)
+library(gridExtra)
+library(RColorBrewer)
+library(GGally)
+library(ggradar)
+library(scales)
+library(see)
+library(gghalves)
+#library(ggpubr)
+```
+
+```{r}
+data = read_excel("heart.xlsx")
+data$target=replace(data$target, data$target==0, "No Disease") 
+data$target=replace(data$target, data$target==1, "Disease") 
+data$sex=replace(data$sex, data$sex==0, "Female") 
+data$sex=replace(data$sex, data$sex==1, "Male") 
+data$fbs=replace(data$fbs, data$fbs==0, "False") 
+data$fbs=replace(data$fbs, data$fbs==1, "True")
+data$exang=replace(data$exang, data$exang==0, "No") 
+data$exang=replace(data$exang, data$exang==1, "Yes")
+data$restecg=replace(data$restecg, data$restecg==0, "Normal") 
+data$restecg=replace(data$restecg, data$restecg==1, "Abnormal") 
+data$restecg=replace(data$restecg, data$restecg==2, "hypertrophy") 
+data$cp=replace(data$cp, data$cp==0, "Asymptomatic") 
+data$cp=replace(data$cp, data$cp==1, "Non-anginal Pain") 
+data$cp=replace(data$cp, data$cp==2, "Atypical Angina") 
+data$cp=replace(data$cp, data$cp==3, "Typical Angina") 
+
+head(data)
+```
+```{r}
+data = read.csv("heart_processed.csv")[2:15]
+data
+```
+```{r}
+max(data$chol)
+```
+
+```{r}
+qualitative = c(2,3,6,7,9,11,13)
+quantitative = c(1,4,5,8,10,12)
+```
+
+
+```{r}
+#summary(data)
+#glimpse(data)
+#skim(data)
+```
+
+
+```{r}
+calculate_percent_1 = function(indices, data){
+  temp = as.data.frame(table(data[indices]))
+  total = temp %>% group_by(temp[1]) %>% dplyr::summarise(tot=sum(Freq))
+  temp$tot = total[match(c(temp[[1]]), total[[1]]),]$tot
+  temp$percent = temp$Freq*100/temp$tot
+  temp[[1]] = factor(temp[[1]], levels=c(as.character(temp[[1]][order(temp[1:(dim(temp)[1]/2),]$percent)])))
+  
+  colnames(temp) = c(c("Var1", "Var2"), colnames(temp[3:dim(temp)[2]]))
+  return(temp)
+}
+
+plot_categorical = function(data, indices, layout, xlabplot2){
+df = calculate_percent_1(indices, data)
+
+plot1 = ggplot(df, aes(fill=Var2, y=Freq, x=Var1)) +
+  geom_bar(position = "stack", stat="identity") +
+  labs(title="", x="", y="count", fill="")+
+  theme(legend.position = "top",
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        plot.margin = unit(c(0,layout[1]+0.2,0,layout[2]), "cm"))
+
+plot2 = ggplot(df, aes(fill=Var2, y=percent, x=Var1))+
+  geom_bar(position="stack", stat="identity")+
+  labs(title="", x=xlabplot2, y="Percentage", fill="var2")+
+  theme(legend.position="none",
+        plot.title = element_text(hjust=0),
+        axis.text.x = element_text(angle=0, hjust=0.5),
+        plot.margin = unit(c(-0.5,layout[1]+0.2,0.2,layout[2]), "cm"))
+#colnames(data)[indices[1]]
+
+plot3 = ggplot(df[1:(dim(df)[1]/2),], aes(fill=Var1, y=tot, x=Var2))+
+  geom_bar(position = "stack", stat="identity")+
+  labs(title="", x="", y="", fill="")+
+  theme(legend.position="right",
+        axis.title.x = element_text(colour='white'),
+        axis.text.x = element_text(colour='white'),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.margin = unit(c(1.4,1,0.2,-layout[1]), "cm")) +
+  scale_fill_manual(values = brewer.pal(n = 9, name = "Set1"))
+
+grid.arrange(plot1,plot2,plot3,
+             ncol=2, nrow=2,
+             layout_matrix = rbind(c(1,3), c(2,3)),
+             heights=c(3,2), widths=c(3,1))
+}
+
+```
+
+
+```{r}
+plot_categorical(data, c(2,14), c(0.5,6))
+```
+
+```{r}
+plot_categorical(data, c(3,14), c(1.8,0.3), "Chest Pain Type")
+```
+
+```{r}
+plot_categorical(data, c(6,14), c(1,5.5), "Fasting Blood Sugar")
+```
+
+```{r}
+plot_categorical(data, c(7,14), c(1.5,2), "Resting Electrocardiographic Results")
+```
+
+```{r}
+plot_categorical(data, c(9,14), c(0.5,6), "Exercise-Induced Angina")
+```
+
+```{r}
+plot_categorical(data, c(11,14), c(1.7,2), "Slope of Peak Exercise ST Segment")
+```
+
+```{r}
+plot_categorical(data, c(12,14), c(0,2), "Number of Major Vessels")
+```
+
+```{r}
+plot_categorical(data, c(13,14), c(2,2), "Thalium Scintigraphy")
+```
+
+```{r}
+head(data[,c(quantitative)])
+```
+
+
+
+```{r}
+temp_data = data.frame(scale(data[,c(quantitative)]), target=data$target)
+colnames(temp_data) = c("Age", "Resting Blood Pressure", "Serum Cholesterol", "Maximum Heart Rate Achieved", "ST Depression Induced by Exercise", "Number of Major Blood Vessles","target")
+
+ggparcoord(temp_data,
+    columns = c(1:5), 
+    groupColumn = 'target',
+    scale = "std",
+    showPoints = TRUE,
+    alphaLines = 0.1
+    ) + 
+  labs(
+    title = "Parallel Coordinates Plot",
+    y = "Scaled Values",
+    x = ""
+  ) +
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=13, hjust=0.5),
+    axis.text.x = element_text(angle=35, vjust=1, hjust=1),
+  )
+```
+
+```{r}
+#c("Age", "Resting Blood Pressure", "Serum Cholestrul", "Maximum Heart Rate Achieved", "ST Depression Induced by Exercise", "target")
+violin_data = rbind(
+data.frame(variable="Age", value=scale(data[,c(quantitative)])[,1], target=data$target),
+data.frame(variable="Resting Blood Pressure", value=scale(data[,c(quantitative)])[,2], target=data$target),
+data.frame(variable="Serum Cholesterol", value=scale(data[,c(quantitative)])[,3], target=data$target),
+data.frame(variable="Maximum Heart Rate Achieved", value=scale(data[,c(quantitative)])[,4], target=data$target),
+data.frame(variable="ST Depression Induced by Exercise", value=scale(data[,c(quantitative)])[,5], target=data$target)
+)
+
+ggplot(violin_data, aes(fill=target, x=variable, y=value))+
+  geom_half_violin(side=c("l","r","l","r","l","r","l","r","l","r"), position = position_nudge(x = 0, y = 0), draw_quantiles=c(0.5))+
+  #geom_violinhalf(flip = c(1, 3, 5, 7, 9), position = position_nudge(x = 0, y = 0))+ 
+  labs(
+    title = "Violin Plot",
+    y = "Scaled Values",
+    x = ""
+  ) +
+  theme(
+    legend.position="right",
+    plot.title = element_text(size=13, hjust=0.5),
+    axis.text.x = element_text(angle=30, vjust=1, hjust=1),
+  )
+```
+
+```{r}
+categorical_data_mean_temp = data.frame(scale(data[,c(quantitative)]), target=data$target) %>% group_by(target) %>% summarize(age=mean(age), trestbps=mean(trestbps), chol=mean(chol), thalach=mean(thalach), oldpeak=mean(oldpeak))
+categorical_data_mean = data.frame(variables = colnames(categorical_data_mean_temp)[2:6], Disease = as.numeric(as.vector(categorical_data_mean_temp[1,c(2:6)])), No_Disease = as.numeric(as.vector(categorical_data_mean_temp[2,c(2:6)])))
+colnames(categorical_data_mean_temp)
+colnames(categorical_data_mean_temp) = c("target", "Age", "Resting Blood Pressure", "Serum Cholesterol", "Maximum Heart Rate Achieved", "ST Depression Induced by Exercise")
+categorical_data_mean_temp
+```
+
+```{r}
+categorical_data_mean_temp = data.frame(scale(data[,c(quantitative)]), target=data$target) %>% group_by(target) %>% summarize(age=mean(age), trestbps=mean(trestbps), chol=mean(chol), thalach=mean(thalach), oldpeak=mean(oldpeak))
+colnames(categorical_data_mean_temp) = c("target", "Age", "Resting Blood Pressure", "Serum Cholesterol", "Maximum Heart Rate Achieved", "ST Depression Induced by Exercise")
+
+categorical_data_mean = data.frame(variables = colnames(categorical_data_mean_temp)[2:6], Disease = as.numeric(as.vector(categorical_data_mean_temp[1,c(2:6)])), No_Disease = as.numeric(as.vector(categorical_data_mean_temp[2,c(2:6)])))
+
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+default_colors = gg_color_hue(2)
+
+
+ggplot(categorical_data_mean) +
+  geom_segment( aes(x=Disease, xend=No_Disease, y=variables, yend=variables), color="grey") +
+  geom_point( aes(x=Disease, y=variables), color=default_colors[1], size=4 ) +
+  geom_point( aes(x=No_Disease, y=variables), color=default_colors[2], size=4 ) +
+  coord_flip() +
+  labs(
+    title = "Lollipop plot",
+    y = "",
+    x = "Scaled Mean Values"
+  ) +
+  theme(
+    legend.position="right",
+    plot.title = element_text(size=13, hjust=0.5),
+    axis.text.x = element_text(angle=30, vjust=1, hjust=1),
+  )
+```
+
+```{r}
+ggpairs(data.frame(scale(data[,c(quantitative)]), target=data$target), columns = 1:5, ggplot2::aes(colour=target, alpha=0.3))
+```
+
+```{r}
+sd(data$chol)
+```

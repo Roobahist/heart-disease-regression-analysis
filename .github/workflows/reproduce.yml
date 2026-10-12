@@ -1,0 +1,47 @@
+name: Reproduce regression analysis
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'data/**'
+      - 'report.Rmd'
+      - '.github/workflows/reproduce.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Install R and analysis dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends r-base r-cran-glmnet r-cran-rmarkdown pandoc
+      - name: Run and validate regression analysis
+        run: |
+          Rscript scripts/run_analysis.R
+          test -s results/model_metrics.csv
+          test -s results/figures/test_roc_curves.png
+          test -s results/figures/lasso_cv.png
+          test -s results/RESULTS.md
+      - name: Render self-contained HTML report
+        run: |
+          Rscript -e "rmarkdown::render('report.Rmd', output_file='report.html', output_dir='results', quiet=TRUE)"
+          test -s results/report.html
+      - name: Commit verified results and figures
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add results/
+          if ! git diff --cached --quiet; then
+            git commit -m "results: regenerate verified model comparisons and figures"
+            git push origin HEAD:main
+          fi
