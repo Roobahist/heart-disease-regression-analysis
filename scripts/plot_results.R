@@ -132,7 +132,8 @@ render_figures <- function(root) {
          x = NULL, y = NULL,
          caption = "Only numerical predictors are shown. Correlation does not establish causality.") +
     theme_report() +
-    theme(panel.grid = element_blank(), legend.position = "right",
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          legend.position = "right",
           axis.text.x = element_text(angle = 35, hjust = 1),
           legend.title = element_text(size = 11))
   save_figure("numeric_correlations", p, w = 11.7, h = 7.8)
@@ -179,8 +180,8 @@ render_figures <- function(root) {
     geom_segment(aes(x = 0, xend = value, yend = model),
                  linewidth = 1.4, alpha = 0.28) +
     geom_point(size = 4.3) +
-    geom_text(aes(label = sprintf("%.3f", value)),
-              hjust = -0.2, colour = ink, fontface = "bold", size = 3.8) +
+    geom_text(aes(x = value + 0.022, label = sprintf("%.3f", value)),
+              hjust = 0, colour = ink, fontface = "bold", size = 3.8) +
     facet_wrap(~metric, nrow = 1) +
     scale_colour_manual(values = palette, guide = "none") +
     scale_x_continuous(limits = c(0, 1.17), breaks = c(0, 0.25, 0.5, 0.75, 1),
