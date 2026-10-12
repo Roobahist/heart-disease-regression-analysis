@@ -31,3 +31,4 @@ only for final evaluation. No clinical deployment or external validation is clai
 ![Age distribution](figures/age_distribution.png)
 ![Outcome balance](figures/outcome_balance.png)
 ![Numeric correlations](figures/numeric_correlations.png)
+![Holdout probability distribution](figures/test_probability_distribution.png)
